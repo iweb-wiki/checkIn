@@ -40,16 +40,18 @@ async function checkInAndGetStatus(cookie) {
 }
 
 async function pushPlus(token, infos) {
-  const content = Array.isArray(infos)
-    ? infos.map(
-        (info) =>
-          `剩余天数：${+info?.leftDays}天，账号：${info?.email}，签到结果：${
-            info?.message
-          }`
-      )
-    : infos.error
-    ? infos.error
-    : "签到异常";
+  let content = [];
+
+  if (!infos.error)
+    infos.map(
+      (info) =>
+        `剩余天数：${+info?.leftDays}天，账号：${info?.email}，签到结果：${
+          info?.message
+        }`
+    );
+  else {
+    content = ["签到异常"];
+  }
 
   const data = {
     token,
@@ -83,7 +85,7 @@ const glaDosCheckIn = async () => {
     const pushInfo = await pushPlus(token, { error: "签到失败" });
     console.log(
       "🚀 ~ file: checkIn.js ~ line 80 ~ glaDosCheckIn ~ pushInfo",
-      pushInfo
+      pushInfo?.data
     );
   }
 };
