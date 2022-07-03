@@ -1,93 +1,103 @@
+const puppeteer = require("puppeteer");
 const axios = require("axios");
 
-function checkIn(cookie) {
-  return axios({
-    method: "post",
-    url: "https://glados.rocks/api/user/checkin",
-    headers: {
-      Cookie: cookie,
-    },
-    data: {
-      token: "glados.network",
-    },
-  });
-}
+const env = process.env;
 
-function getStatus(cookie) {
-  return axios({
-    method: "get",
-    url: "https://glados.rocks/api/user/status",
-    headers: {
-      Cookie: cookie,
-    },
-  });
-}
+async function checkInAndGetStatus() {
+  let result = {};
+  try {
+    const checkInRes = await fetch("https://glados.rocks/api/user/checkin", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "glados.network" }),
+    });
+    result.title =
+      (await checkInRes.json())?.message || `status: ${checkInRes?.status}`;
 
-async function checkInAndGetStatus(cookie) {
-  const checkInRes = await checkIn(cookie);
-  const message = checkInRes?.data?.message;
+    const status = await fetch("https://glados.rocks/api/user/status");
+    result.content =
+      status.status === 200
+        ? `leftDays: ${parseFloat((await status.json())?.data?.leftDays)}`
+        : `status: ${status.status}`;
 
-  const statusRes = await getStatus(cookie);
-  const userStatus = statusRes?.data?.data;
-  const email = userStatus?.email;
-  const leftDays = userStatus?.leftDays;
-
-  return {
-    email,
-    leftDays,
-    message,
-  };
-}
-
-async function pushPlus(token, infos) {
-  let content = [];
-
-  if (!infos.error)
-    infos.map(
-      (info) =>
-        `剩余天数：${+info?.leftDays}天，账号：${info?.email}，签到结果：${
-          info?.message
-        }`
-    );
-  else {
-    content = ["签到异常"];
+    return result;
+  } catch (error) {
+    console.error(" checkInAndGetStatus ~ error", error);
+    return { ...result, error };
   }
+}
 
+async function setCookie(cookie) {
+  const cookies = cookie.split(";").reduce((res, c) => {
+    const current = c.trim().split("=") || [];
+    return [
+      ...res,
+      {
+        name: current[0],
+        value: current[1],
+        domain: "glados.rocks",
+        path: "/",
+        httpOnly: true,
+      },
+    ];
+  }, []);
+  await this?.setCookie?.(...cookies);
+}
+
+async function pushPlus(token, info) {
   const data = {
     token,
-    title: content[0],
-    content: content.join("\n"),
+    title: info.title,
+    content: info.content,
     template: "txt",
   };
 
-  console.log(" pushPlus ~ data", data);
   return axios({
-    method: "post",
     url: "http://www.pushplus.plus/send",
+    method: "POST",
     data,
   });
 }
 
-const glaDosCheckIn = async () => {
-  const env = process.env;
-  const token = env.plusToken;
+async function checkIn(cookie) {
+  const browser = await puppeteer.launch({
+    product: "chrome",
+    // Make browser logs visible
+    dumpio: true,
+    ignoreDefaultArgs: ["--enable-automation"],
+  });
+
+  const page = await browser.newPage();
   try {
-    const cookies = env.COOKIES.split("&&") ?? [];
-
-    const res = await Promise.all(
-      cookies.map((cookie) => checkInAndGetStatus(cookie))
-    );
-    console.log("~ glaDosCheckIn ~ res", res);
-    const pushInfo = await pushPlus(token, res);
-    console.log(" glaDosCheckIn ~ pushInfo", pushInfo?.data);
+    await setCookie.call(page, cookie);
+    await page.goto("https://glados.rocks/console/checkin", {
+      waitUntil: ["load", "networkidle0"],
+    });
+    const pageTitle = await page.title();
+    if (pageTitle === "Just a moment...") throw Error("Just a moment...");
+    console.log("page--title", pageTitle);
+    page.on("response", async (response) => {
+      const status = response.status();
+      const url = response.url();
+      console.log(`${url}:  ${status}`);
+    });
+    return page.evaluate(checkInAndGetStatus);
   } catch (error) {
-    console.log(" glaDosCheckIn ~ error", error);
-    const pushInfo = await pushPlus(token, { error: "签到失败" });
-    console.log(
-      "🚀 ~ file: checkIn.js ~ line 80 ~ glaDosCheckIn ~ pushInfo",
-      pushInfo?.data
-    );
+    console.error("🚀 ~ file: checkIn.js ~ line 27 ~ checkIn ~ error", error);
+    browser.close();
+    return { title: "error", content: error.message };
+  } finally {
+    setTimeout(async () => {
+      browser.close().then(() => console.log("browser closed"));
+    }, 2000);
   }
-};
+}
 
-glaDosCheckIn();
+(async function glaDosCheckIn() {
+  console.log("====start====");
+  const cookie = env.COOKIES;
+  const token = env.plusToken;
+  const result = await checkIn(cookie);
+  const pushResult = await pushPlus(token, result);
+  console.log(" pushResult", result, pushResult.data);
+})();

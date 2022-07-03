@@ -20,6 +20,8 @@ jobs:
           node-version: "14.x"
       - name: install axios
         run: npm install axios
+      - name: install puppeteer
+        run: npm install puppeteer
       - name: CheckIn
         run: node checkin.js
         env:
